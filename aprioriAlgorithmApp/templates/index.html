@@ -2,40 +2,31 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Data Check Apriori Algorithm</title>
-    <script>
-        async function submitForm(event) {
-            event.preventDefault();
-            const formData = new FormData();
-            const fileInput = document.getElementById("file");
-            const minSupportInput = document.getElementById("min_support");
-
-            formData.append("file", fileInput.files[0]);
-            formData.append("min_support", minSupportInput.value);
-
-            const response = await fetch("/process_csv", {
-                method: "POST",
-                body: formData
-            });
-            const data = await response.json();
-            document.getElementById("output").textContent = JSON.stringify(data.result, null, 2);
+    <title>Check Apriori Algorithm</title>
+    <style>
+        body {
+            font-family: Times New Roman, Serif;
         }
-    </script>
+        h1 {
+            text-align: center;
+        }
+        form {
+            text-align: center;
+            margin: 20px;
+        }
+    </style>
 </head>
 <body>
-    <h1>Data Check Apriori Algorithm</h1>
+    <h1>Check Apriori Algorithm</h1>
     
-    <form id="uploadForm" onsubmit="submitForm(event)">
-        <label for="file">Input file:</label>
+    <form id="uploadForm" action="/process_csv" method="POST" enctype="multipart/form-data">
+        <label for="file">Input File:</label>
         <input type="file" id="file" name="file" accept=".csv" required><br><br>
         
         <label for="min_support">Minimal Support:</label>
         <input type="number" id="min_support" name="min_support" value="20" required><br><br>
         
-        <button type="submit">Submit</button>
+        <button type="submit">Upload and Run Apriori Algorithm</button>
     </form>
-
-    <h2>Output</h2>
-    <pre id="output"></pre>
 </body>
 </html>
