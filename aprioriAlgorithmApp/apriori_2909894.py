@@ -1,76 +1,120 @@
 from flask import Flask, request, jsonify, render_template
 from itertools import combinations, chain
-from collections import defaultdict
+from collections import defaultdict,Counter
 import csv
 import io
+import time
 
 app = Flask(__name__)
 
-# Apriori functions
-def find_frequent_1_itemsets(transactions, min_support):
-    item_count = defaultdict(int)
+def get_frequent_1_itemsets(transactions, min_support):
+    item_counts = Counter()
     for transaction in transactions:
         for item in transaction:
-            item_count[frozenset([item])] += 1
-    return {itemset for itemset, count in item_count.items() if count >= min_support}
+            item_counts[frozenset([item])] += 1
+    return {itemset: count for itemset, count in item_counts.items() if count >= min_support}
 
-def apriori_gen(Lk_minus_1):
+# Generate candidate itemsets of size k
+def apriori_gen(itemsets, k):
     candidates = set()
-    itemsets = list(Lk_minus_1)
+    itemsets = list(itemsets)
     for i in range(len(itemsets)):
         for j in range(i + 1, len(itemsets)):
-            l1, l2 = list(itemsets[i]), list(itemsets[j])
-            if l1[:-1] == l2[:-1]:
-                candidates.add(frozenset(l1 + [l2[-1]]))
+            union_set = itemsets[i] | itemsets[j]
+            if len(union_set) == k and not has_infrequent_subset(union_set, itemsets):
+                candidates.add(union_set)
     return candidates
 
-def has_infrequent_subset(candidate, Lk_minus_1):
-    k = len(candidate)
-    subsets = combinations(candidate, k - 1)
-    return any(frozenset(subset) not in Lk_minus_1 for subset in subsets)
+# Check if candidate has any infrequent subset
+def has_infrequent_subset(candidate, frequent_itemsets):
+    for subset in combinations(candidate, len(candidate) - 1):
+        if frozenset(subset) not in frequent_itemsets:
+            return True
+    return False
 
-def filter_candidates_by_support(candidates, transactions, min_support):
-    item_count = defaultdict(int)
+def filter_candidates(transactions, candidates, min_support):
+    item_counts = defaultdict(int)
     for transaction in transactions:
         for candidate in candidates:
             if candidate.issubset(transaction):
-                item_count[candidate] += 1
-    return {itemset for itemset, count in item_count.items() if count >= min_support}
+                item_counts[candidate] += 1
+    return {itemset: count for itemset, count in item_counts.items() if count >= min_support}
 
 def apriori(transactions, min_support):
-    L1 = find_frequent_1_itemsets(transactions, min_support)
-    L = [L1]
+    frequent_itemsets = []
+    current_itemsets = get_frequent_1_itemsets(transactions, min_support)
     k = 2
-    while True:
-        candidates_k = apriori_gen(L[k - 2])
-        candidates_k = {candidate for candidate in candidates_k if not has_infrequent_subset(candidate, L[k - 2])}
-        Lk = filter_candidates_by_support(candidates_k, transactions, min_support)
-        if not Lk:
-            break
-        L.append(Lk)
+    while current_itemsets:
+        frequent_itemsets.extend(current_itemsets.keys())
+        candidates = apriori_gen(current_itemsets.keys(), k)
+        current_itemsets = filter_candidates(transactions, candidates, min_support)
         k += 1
-    return list(chain(*L))
+    return [set(itemset) for itemset in frequent_itemsets] 
 
-# Route to display the HTML form
+def get_maximal_frequent_itemsets(frequent_itemsets):
+    maximal = []
+    for itemset in sorted(frequent_itemsets, key=len, reverse=True):
+        if not any(set(itemset).issubset(set(max_itemset)) for max_itemset in maximal):
+            maximal.append(itemset)
+    return maximal  # Add this return statement
+
 @app.route('/')
 def index():
     return render_template('index.html')
 
-# Route to process the uploaded CSV file
+# @app.route('/process_csv', methods=['POST'])
+# def process_csv():
+#     file = request.files['file']
+#     min_support = int(request.form['min_support'])
+#     # Parse CSV file
+#     stream = io.StringIO(file.stream.read().decode("UTF8"), newline=None)
+#     csv_input = csv.reader(stream)
+#     transactions = [row for row in csv_input]
+#     # Measure execution time
+#     start_time = time.time()
+#     frequent_itemsets = apriori(transactions, min_support)
+#     end_time = time.time()
+#     execution_time = end_time - start_time
+#     maximal_frequent_itemsets = get_maximal_frequent_itemsets(frequent_itemsets)
+#     maximal_frequent_itemsets.sort(key=lambda x: (len(x), x))
+#     # Calculate total count
+#     total_count = len(maximal_frequent_itemsets)
+#     # Format frequent itemsets output
+#     formatted_output = [f"{{{','.join(map(str, itemset))}}}" for itemset in maximal_frequent_itemsets]
+#     return jsonify({
+#         "minimal_support": min_support,
+#         "execution_time": f"{execution_time:.2f} seconds",
+#         "total_count": total_count,
+#         "result": formatted_output
+#     })
+
 @app.route('/process_csv', methods=['POST'])
 def process_csv():
     file = request.files['file']
     min_support = int(request.form['min_support'])
-    
-    # Parse CSV file
     stream = io.StringIO(file.stream.read().decode("UTF8"), newline=None)
-    csv_input = csv.reader(stream)
-    transactions = [row for row in csv_input]
+    transactions = [set(row) for row in csv.reader(stream)]  # Convert to set directly
     
-    # Run Apriori algorithm
-    result = apriori(transactions, min_support)
-    result = [list(itemset) for itemset in result]
-    return jsonify(result=result)
+    start_time = time.time()
+    frequent_itemsets = apriori(transactions, min_support)
+    end_time = time.time()
+
+    execution_time = end_time - start_time
+    maximal_frequent_itemsets = get_maximal_frequent_itemsets(frequent_itemsets)
+    maximal_frequent_itemsets.sort(key=lambda x: (len(x), x))
+    total_count = len(maximal_frequent_itemsets)
+
+    formatted_output = [f"{{{','.join(map(str,sorted(itemset))).strip()}}}" for itemset in maximal_frequent_itemsets]
+    result_string = "{" + "".join(formatted_output) + "}"
+
+    return render_template(
+        'result.html', 
+        minimal_support=min_support,
+        execution_time=f"{execution_time:.2f} seconds",
+        total_count=total_count,
+        result=result_string
+    )
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
